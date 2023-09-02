@@ -6,7 +6,13 @@ import (
 	"time"
 )
 
-const NoExpiration time.Duration = -1
+const (
+	// DefaultExpiration For use with functions that take an expiration time. Equivalent to
+	// passing in the same expiration duration as was given to NewCache() to (e.g. 5 minutes.)
+	DefaultExpiration time.Duration = 0
+	// NoExpiration For use with functions that take an expiration time.
+	NoExpiration time.Duration = -1
+)
 
 var ErrItemNotFound = errors.New("item not found")
 
@@ -24,22 +30,30 @@ type Cache struct {
 	defaultExpiration time.Duration
 }
 
+// NewCache Return a new cache instance with the provided default expiration time and cleanup interval.
+// If the expiration duration is less than one (or NoExpiration),
+// the items in the cache never expire (by default), and must be deleted
+// manually. If the cleanup interval is less than one, expired items are not
+// deleted from the cache.
 func NewCache(defaultExpiration, cleanupInterval time.Duration) *Cache {
-	if defaultExpiration == 0 {
+	if defaultExpiration <= 0 {
 		defaultExpiration = NoExpiration
 	}
 
 	c := &Cache{
+		stop:              make(chan struct{}),
 		mu:                sync.RWMutex{},
 		items:             make(map[string]item),
 		defaultExpiration: defaultExpiration,
 	}
 
-	c.wg.Add(1)
-	go func(cleanupInterval time.Duration) {
-		defer c.wg.Done()
-		c.cleanUp(cleanupInterval)
-	}(cleanupInterval)
+	if cleanupInterval > 0 {
+		c.wg.Add(1)
+		go func(cleanupInterval time.Duration) {
+			defer c.wg.Done()
+			c.cleanUp(cleanupInterval)
+		}(cleanupInterval)
+	}
 
 	return c
 }
@@ -55,7 +69,7 @@ func (c *Cache) cleanUp(cleanupInterval time.Duration) {
 		case <-t.C:
 			c.mu.Lock()
 			for key, object := range c.items {
-				if object.expiration <= time.Now().Unix() {
+				if object.expiration > 0 && object.expiration <= time.Now().UnixNano() {
 					delete(c.items, key)
 				}
 			}
@@ -71,7 +85,7 @@ func (c *Cache) Stop() {
 
 func (c *Cache) Set(key string, object any, duration time.Duration) {
 	var expiration int64
-	if duration == 0 {
+	if duration == DefaultExpiration {
 		duration = c.defaultExpiration
 	}
 	if duration > 0 {
@@ -87,16 +101,16 @@ func (c *Cache) Set(key string, object any, duration time.Duration) {
 	}
 }
 
-func (c *Cache) Get(key string) (any, time.Time, error) {
+func (c *Cache) Get(key string) (any, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	item, ok := c.items[key]
 	if !ok {
-		return nil, time.Time{}, ErrItemNotFound
+		return nil, ErrItemNotFound
 	}
 
-	return item.object, time.Unix(0, item.expiration), nil
+	return item.object, nil
 }
 
 func (c *Cache) Delete(key string) {
