@@ -27,32 +27,23 @@ func TestCache_EmptyAtStartup(t *testing.T) {
 	assert.Equal(t, 0, ic)
 }
 
-func TestCache_SetAndGet(t *testing.T) {
+func TestCache_CleanUp(t *testing.T) {
 	t.Run("withNoExpirationTime", func(t *testing.T) {
-		tc := NewCache(NoExpiration, 0)
+		tc := NewCache(NoExpiration, 1*time.Millisecond)
 		defer tc.Stop()
 
 		tc.Set("aKey", "aValue", DefaultExpiration)
-		tc.Set("bKey", "bValue", DefaultExpiration)
-		tc.Set("cKey", 3, DefaultExpiration)
+		tc.Set("bKey", 1, DefaultExpiration)
+
+		<-time.After(10 * time.Millisecond)
 
 		a, found := tc.Get("aKey")
 		assert.Equal(t, "aValue", a)
 		assert.True(t, found)
 
 		b, found := tc.Get("bKey")
-		assert.Equal(t, "bValue", b)
+		assert.Equal(t, 1, b)
 		assert.True(t, found)
-
-		c, found := tc.Get("cKey")
-		assert.Equal(t, 3, c)
-		assert.True(t, found)
-
-		tc.Delete("aKey")
-
-		a, found = tc.Get("aKey")
-		assert.Nil(t, a)
-		assert.False(t, found)
 	})
 
 	t.Run("withExpirationTime", func(t *testing.T) {
@@ -61,7 +52,6 @@ func TestCache_SetAndGet(t *testing.T) {
 
 		tc.Set("aKey", "aValue", DefaultExpiration)
 		tc.Set("bKey", "bValue", DefaultExpiration)
-		tc.Set("cKey", 3, DefaultExpiration)
 
 		<-time.After(25 * time.Millisecond)
 
@@ -71,10 +61,6 @@ func TestCache_SetAndGet(t *testing.T) {
 
 		b, found := tc.Get("bKey")
 		assert.Nil(t, b)
-		assert.False(t, found)
-
-		c, found := tc.Get("cKey")
-		assert.Nil(t, c)
 		assert.False(t, found)
 	})
 
@@ -134,6 +120,275 @@ func TestCache_SetAndGet(t *testing.T) {
 		c, False = tc.Get("cKey")
 		assert.Nil(t, c)
 		assert.False(t, False)
+	})
+}
+
+func TestCache_SetAndGet(t *testing.T) {
+	t.Run("setNewItems", func(t *testing.T) {
+		tc := NewCache(NoExpiration, 0)
+		defer tc.Stop()
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", 1, DefaultExpiration)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "aValue", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, 1, b)
+		assert.True(t, found)
+	})
+
+	t.Run("setExistingItems", func(t *testing.T) {
+		tc := NewCache(NoExpiration, 0)
+		defer tc.Stop()
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", 1, DefaultExpiration)
+
+		tc.Set("aKey", "a2Value", DefaultExpiration)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "a2Value", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, 1, b)
+		assert.True(t, found)
+	})
+}
+
+func TestCache_AddAndGet(t *testing.T) {
+	t.Run("addNewItems", func(t *testing.T) {
+		tc := NewCache(NoExpiration, 0)
+		defer tc.Stop()
+
+		err := tc.Add("aKey", "aValue", DefaultExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("bKey", 1, DefaultExpiration)
+		assert.Nil(t, err)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "aValue", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, 1, b)
+		assert.True(t, found)
+	})
+
+	t.Run("addExistingItems", func(t *testing.T) {
+		tc := NewCache(NoExpiration, 0)
+		defer tc.Stop()
+
+		err := tc.Add("aKey", "aValue", DefaultExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("bKey", 1, DefaultExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("aKey", "a2Value", DefaultExpiration)
+		assert.ErrorIs(t, err, ErrItemAlreadyExists)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "aValue", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, 1, b)
+		assert.True(t, found)
+	})
+
+	t.Run("addItemsAfterExpirationTime", func(t *testing.T) {
+		tc := NewCache(20*time.Millisecond, 1*time.Millisecond)
+		defer tc.Stop()
+
+		err := tc.Add("aKey", "aValue", DefaultExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("bKey", "bValue", NoExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("cKey", 1, 50*time.Millisecond)
+		assert.Nil(t, err)
+
+		<-time.After(25 * time.Millisecond)
+
+		err = tc.Add("aKey", "a2Value", NoExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("bKey", "b2Value", NoExpiration)
+		assert.ErrorIs(t, err, ErrItemAlreadyExists)
+
+		err = tc.Add("cKey", 2, NoExpiration)
+		assert.ErrorIs(t, err, ErrItemAlreadyExists)
+
+		<-time.After(30 * time.Millisecond)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "a2Value", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, "bValue", b)
+		assert.True(t, found)
+
+		c, found := tc.Get("cKey")
+		assert.Nil(t, c)
+		assert.False(t, found)
+	})
+
+	t.Run("addItemsAfterExpirationTimeWithHigherCleanUpInterval", func(t *testing.T) {
+		tc := NewCache(20*time.Millisecond, 60*time.Millisecond)
+		defer tc.Stop()
+
+		err := tc.Add("aKey", "aValue", DefaultExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("bKey", "bValue", NoExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("cKey", 1, 50*time.Millisecond)
+		assert.Nil(t, err)
+
+		<-time.After(25 * time.Millisecond)
+
+		err = tc.Add("aKey", "a2Value", NoExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Add("bKey", "b2Value", NoExpiration)
+		assert.ErrorIs(t, err, ErrItemAlreadyExists)
+
+		err = tc.Add("cKey", 2, NoExpiration)
+		assert.ErrorIs(t, err, ErrItemAlreadyExists)
+
+		<-time.After(30 * time.Millisecond)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "a2Value", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, "bValue", b)
+		assert.True(t, found)
+
+		c, found := tc.Get("cKey")
+		assert.Nil(t, c)
+		assert.False(t, found)
+	})
+}
+
+func TestCache_ReplaceAndGet(t *testing.T) {
+	t.Run("replaceExistingItems", func(t *testing.T) {
+		tc := NewCache(NoExpiration, 0)
+		defer tc.Stop()
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", 1, DefaultExpiration)
+
+		err := tc.Replace("aKey", "a2Value", DefaultExpiration)
+		assert.Nil(t, err)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "a2Value", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, 1, b)
+		assert.True(t, found)
+	})
+
+	t.Run("replaceNotExistingItems", func(t *testing.T) {
+		tc := NewCache(NoExpiration, 0)
+		defer tc.Stop()
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", 1, DefaultExpiration)
+
+		err := tc.Replace("cKey", 1, DefaultExpiration)
+		assert.ErrorIs(t, err, ErrItemNotFound)
+
+		a, found := tc.Get("aKey")
+		assert.Equal(t, "aValue", a)
+		assert.True(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, 1, b)
+		assert.True(t, found)
+
+		c, found := tc.Get("cKey")
+		assert.Nil(t, c)
+		assert.False(t, found)
+	})
+
+	t.Run("replaceItemsAfterExpirationTime", func(t *testing.T) {
+		tc := NewCache(20*time.Millisecond, 1*time.Millisecond)
+		defer tc.Stop()
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", "bValue", NoExpiration)
+		tc.Set("cKey", 1, 50*time.Millisecond)
+
+		<-time.After(25 * time.Millisecond)
+
+		err := tc.Replace("aKey", "a2Value", NoExpiration)
+		assert.ErrorIs(t, err, ErrItemNotFound)
+
+		err = tc.Replace("bKey", "b2Value", NoExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Replace("cKey", 2, NoExpiration)
+		assert.Nil(t, err)
+
+		<-time.After(30 * time.Millisecond)
+
+		a, found := tc.Get("aKey")
+		assert.Nil(t, a)
+		assert.False(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, "b2Value", b)
+		assert.True(t, found)
+
+		c, found := tc.Get("cKey")
+		assert.Equal(t, 2, c)
+		assert.True(t, found)
+	})
+
+	t.Run("replaceItemsAfterExpirationTimeWithHigherCleanUpInterval", func(t *testing.T) {
+		tc := NewCache(20*time.Millisecond, 60*time.Millisecond)
+		defer tc.Stop()
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", "bValue", NoExpiration)
+		tc.Set("cKey", 1, 50*time.Millisecond)
+
+		<-time.After(25 * time.Millisecond)
+
+		err := tc.Replace("aKey", "a2Value", NoExpiration)
+		assert.ErrorIs(t, err, ErrItemNotFound)
+
+		err = tc.Replace("bKey", "b2Value", NoExpiration)
+		assert.Nil(t, err)
+
+		err = tc.Replace("cKey", 2, NoExpiration)
+		assert.Nil(t, err)
+
+		<-time.After(30 * time.Millisecond)
+
+		a, found := tc.Get("aKey")
+		assert.Nil(t, a)
+		assert.False(t, found)
+
+		b, found := tc.Get("bKey")
+		assert.Equal(t, "b2Value", b)
+		assert.True(t, found)
+
+		c, found := tc.Get("cKey")
+		assert.Equal(t, 2, c)
+		assert.True(t, found)
 	})
 }
 

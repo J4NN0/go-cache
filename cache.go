@@ -1,8 +1,15 @@
 package go_cache
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"time"
+)
+
+var (
+	ErrItemAlreadyExists = errors.New("item already exists")
+	ErrItemNotFound      = errors.New("item not found")
 )
 
 const (
@@ -87,6 +94,51 @@ func (c *Cache) Stop() {
 // If it is -1 (NoExpiration), the item never expires.
 // If the duration is positive, the item expires after that time has passed.
 func (c *Cache) Set(key string, object any, duration time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.set(key, object, duration)
+}
+
+// Add Inserts an item to the cache only if an item doesn't already exist for the given key,
+// or if the existing item has expired. Returns ErrItemAlreadyExists error otherwise.
+// If the duration is 0 (DefaultExpiration), the cache's default expiration time is used.
+// If it is -1 (NoExpiration), the item never expires.
+// If the duration is positive, the item expires after that time has passed.
+func (c *Cache) Add(key string, object any, duration time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	item, found := c.items[key]
+	isExpired := item.expiration > 0 && item.expiration <= time.Now().UnixNano()
+	if found && !isExpired {
+		return fmt.Errorf("%w: %s", ErrItemAlreadyExists, key)
+	}
+	c.set(key, object, duration)
+
+	return nil
+}
+
+// Replace Sets a new value for the cache only if the given key already exists,
+// and the existing item has not expired. Returns ErrItemNotFound error otherwise.
+// If the duration is 0 (DefaultExpiration), the cache's default expiration time is used.
+// If it is -1 (NoExpiration), the item never expires.
+// If the duration is positive, the item expires after that time has passed.
+func (c *Cache) Replace(key string, object any, duration time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	item, found := c.items[key]
+	isExpired := item.expiration > 0 && item.expiration <= time.Now().UnixNano()
+	if !found || isExpired {
+		return fmt.Errorf("%w: %s", ErrItemNotFound, key)
+	}
+	c.set(key, object, duration)
+
+	return nil
+}
+
+func (c *Cache) set(key string, object any, duration time.Duration) {
 	var expiration int64
 	if duration == DefaultExpiration {
 		duration = c.defaultExpiration
@@ -94,9 +146,6 @@ func (c *Cache) Set(key string, object any, duration time.Duration) {
 	if duration > 0 {
 		expiration = time.Now().Add(duration).UnixNano()
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	c.items[key] = item{
 		object:     object,
@@ -112,8 +161,9 @@ func (c *Cache) Get(key string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	item, ok := c.items[key]
-	if !ok || (item.expiration > 0 && item.expiration <= time.Now().UnixNano()) {
+	item, found := c.items[key]
+	isExpired := item.expiration > 0 && item.expiration <= time.Now().UnixNano()
+	if !found || isExpired {
 		return nil, false
 	}
 
