@@ -28,8 +28,20 @@ func main() {
 	// expiration time prior set (i.e. 10 minutes)
 	c.Set("foo", "someValue", cache.DefaultExpiration)
 
-	// Set a new entry with key "bar" and value "1", with no expiration time
-	c.Set("bar", 1, cache.NoExpiration)
+	// Add a new entry - if an item doesn't already exist for the given key -  
+	// with key "bar" and value "1", with no expiration time
+	err := c.Add("bar", 1, cache.NoExpiration)
+	if err != nil {
+		fmt.Printf("Could not add 'bar': %v\n", err)
+		return
+    }
+	
+	// Replace an existing entry only if it hasn't expired yet
+	err = c.Replace("foo", "someValue2", cache.DefaultExpiration)
+	if err != nil {
+		fmt.Printf("Could not replace 'foo': %v\n", err)
+		return
+	}
 
 	// Since Go is statically typed, and cache values can be anything, type
 	// assertion might be needed in some case
@@ -40,7 +52,7 @@ func main() {
 		return
 	}
 	foo = x.(string)
-	fmt.Printf("Got 'foo': %s\n", foo) // someValue
+	fmt.Printf("Got 'foo': %s\n", foo) // someValue2
 
 	// Current cache size can be checked with following method
 	ic := c.ItemCount()
