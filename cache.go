@@ -1,25 +1,17 @@
 package go_cache
 
 import (
-	"errors"
 	"sync"
 	"time"
 )
 
 const (
 	// DefaultExpiration For use with functions that take an expiration time. Equivalent to
-	// passing in the same expiration duration as was given to NewCache() to (e.g. 5 minutes.)
+	// passing in the same expiration duration as was given to NewCache (e.g. 5 minutes.)
 	DefaultExpiration time.Duration = 0
 	// NoExpiration For use with functions that take an expiration time.
 	NoExpiration time.Duration = -1
 )
-
-var ErrItemNotFound = errors.New("item not found")
-
-type item struct {
-	object     any
-	expiration int64
-}
 
 type Cache struct {
 	stop chan struct{}
@@ -30,11 +22,15 @@ type Cache struct {
 	defaultExpiration time.Duration
 }
 
-// NewCache Return a new cache instance with the provided default expiration time and cleanup interval.
-// If the expiration duration is less than one (or NoExpiration),
-// the items in the cache never expire (by default), and must be deleted
-// manually. If the cleanup interval is less than one, expired items are not
-// deleted from the cache.
+type item struct {
+	object     any
+	expiration int64
+}
+
+// NewCache Returns a new cache with a given default expiration duration and cleanup interval.
+// If the expiration duration is less than 1, the items in the cache never expire (by default),
+// and must be deleted manually. If the cleanup interval is less than one, expired items are not
+// deleted from the cache before calling DeleteExpired().
 func NewCache(defaultExpiration, cleanupInterval time.Duration) *Cache {
 	if defaultExpiration <= 0 {
 		defaultExpiration = NoExpiration
@@ -58,6 +54,8 @@ func NewCache(defaultExpiration, cleanupInterval time.Duration) *Cache {
 	return c
 }
 
+// cleanUp Deletes all expired items from the cache. This can be used if the
+// cleanupInterval passed to NewCache() is set to less than 1.
 func (c *Cache) cleanUp(cleanupInterval time.Duration) {
 	t := time.NewTicker(cleanupInterval)
 	defer t.Stop()
@@ -78,11 +76,16 @@ func (c *Cache) cleanUp(cleanupInterval time.Duration) {
 	}
 }
 
+// Stop This will stop the cleanup goroutine and free up resources.
 func (c *Cache) Stop() {
 	close(c.stop)
 	c.wg.Wait()
 }
 
+// Set Adds an item to the cache, replacing any existing item.
+// If the duration is 0 (DefaultExpiration), the cache's default expiration time is used.
+// If it is -1 (NoExpiration), the item never expires.
+// If the duration is positive, the item expires after that time has passed.
 func (c *Cache) Set(key string, object any, duration time.Duration) {
 	var expiration int64
 	if duration == DefaultExpiration {
@@ -101,18 +104,24 @@ func (c *Cache) Set(key string, object any, duration time.Duration) {
 	}
 }
 
-func (c *Cache) Get(key string) (any, error) {
+// Get Looks up a key's value from the cache.
+// If the key corresponds to an item in the cache, a copy of the value is returned.
+// If the key does not exist, nil is returned.
+// If the key is found but has expired, it is deleted from the cache and nil is returned.
+func (c *Cache) Get(key string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	item, ok := c.items[key]
-	if !ok {
-		return nil, ErrItemNotFound
+	if !ok || (item.expiration > 0 && item.expiration <= time.Now().UnixNano()) {
+		return nil, false
 	}
 
-	return item.object, nil
+	return item.object, true
 }
 
+// Delete Removes the provided key from the cache.
+// If the key was not found, Delete is a no-op.
 func (c *Cache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -120,6 +129,9 @@ func (c *Cache) Delete(key string) {
 	delete(c.items, key)
 }
 
+// Flush Completely clears the cache.
+// This will delete all items in the cache, including ones that have not yet expired.
+// This is a no-op if the cache is already empty.
 func (c *Cache) Flush() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -127,6 +139,8 @@ func (c *Cache) Flush() {
 	c.items = map[string]item{}
 }
 
+// ItemCount Returns the number of items in the cache. This may include items that have expired,
+// but have not yet been cleaned up.
 func (c *Cache) ItemCount() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

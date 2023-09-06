@@ -11,17 +11,17 @@ func TestCache_EmptyAtStartup(t *testing.T) {
 	tc := NewCache(NoExpiration, 0)
 	defer tc.Stop()
 
-	a, err := tc.Get("sampleKeyA")
+	a, found := tc.Get("sampleKeyA")
 	assert.Nil(t, a)
-	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.False(t, found)
 
-	b, err := tc.Get("sampleKeyB")
+	b, found := tc.Get("sampleKeyB")
 	assert.Nil(t, b)
-	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.False(t, found)
 
-	c, err := tc.Get("sampleKeyC")
+	c, found := tc.Get("sampleKeyC")
 	assert.Nil(t, c)
-	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.False(t, found)
 
 	ic := tc.ItemCount()
 	assert.Equal(t, 0, ic)
@@ -36,23 +36,23 @@ func TestCache_SetAndGet(t *testing.T) {
 		tc.Set("bKey", "bValue", DefaultExpiration)
 		tc.Set("cKey", 3, DefaultExpiration)
 
-		a, err := tc.Get("aKey")
+		a, found := tc.Get("aKey")
 		assert.Equal(t, "aValue", a)
-		assert.Nil(t, err)
+		assert.True(t, found)
 
-		b, err := tc.Get("bKey")
+		b, found := tc.Get("bKey")
 		assert.Equal(t, "bValue", b)
-		assert.Nil(t, err)
+		assert.True(t, found)
 
-		c, err := tc.Get("cKey")
+		c, found := tc.Get("cKey")
 		assert.Equal(t, 3, c)
-		assert.Nil(t, err)
+		assert.True(t, found)
 
 		tc.Delete("aKey")
 
-		a, err = tc.Get("aKey")
+		a, found = tc.Get("aKey")
 		assert.Nil(t, a)
-		assert.ErrorIs(t, err, ErrItemNotFound)
+		assert.False(t, found)
 	})
 
 	t.Run("withExpirationTime", func(t *testing.T) {
@@ -65,17 +65,17 @@ func TestCache_SetAndGet(t *testing.T) {
 
 		<-time.After(25 * time.Millisecond)
 
-		a, err := tc.Get("aKey")
+		a, found := tc.Get("aKey")
 		assert.Nil(t, a)
-		assert.ErrorIs(t, err, ErrItemNotFound)
+		assert.False(t, found)
 
-		b, err := tc.Get("bKey")
+		b, found := tc.Get("bKey")
 		assert.Nil(t, b)
-		assert.ErrorIs(t, err, ErrItemNotFound)
+		assert.False(t, found)
 
-		c, err := tc.Get("cKey")
+		c, found := tc.Get("cKey")
 		assert.Nil(t, c)
-		assert.ErrorIs(t, err, ErrItemNotFound)
+		assert.False(t, found)
 	})
 
 	t.Run("withSeveralExpirationTimes", func(t *testing.T) {
@@ -88,23 +88,52 @@ func TestCache_SetAndGet(t *testing.T) {
 
 		<-time.After(25 * time.Millisecond)
 
-		a, err := tc.Get("aKey")
+		a, False := tc.Get("aKey")
 		assert.Nil(t, a)
-		assert.ErrorIs(t, err, ErrItemNotFound)
+		assert.False(t, False)
 
-		b, err := tc.Get("bKey")
+		b, False := tc.Get("bKey")
 		assert.Equal(t, "bValue", b)
-		assert.Nil(t, err)
+		assert.True(t, False)
 
-		c, err := tc.Get("cKey")
+		c, False := tc.Get("cKey")
 		assert.Equal(t, 3, c)
-		assert.Nil(t, err)
+		assert.True(t, False)
 
 		<-time.After(30 * time.Millisecond)
 
-		c, err = tc.Get("cKey")
+		c, False = tc.Get("cKey")
 		assert.Nil(t, c)
-		assert.ErrorIs(t, err, ErrItemNotFound)
+		assert.False(t, False)
+	})
+
+	t.Run("withSeveralExpirationTimesAndHigherCleanUpInterval", func(t *testing.T) {
+		tc := NewCache(20*time.Millisecond, 60*time.Millisecond)
+		defer tc.Stop()
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", "bValue", NoExpiration)
+		tc.Set("cKey", 3, 50*time.Millisecond)
+
+		<-time.After(25 * time.Millisecond)
+
+		a, False := tc.Get("aKey")
+		assert.Nil(t, a)
+		assert.False(t, False)
+
+		b, False := tc.Get("bKey")
+		assert.Equal(t, "bValue", b)
+		assert.True(t, False)
+
+		c, False := tc.Get("cKey")
+		assert.Equal(t, 3, c)
+		assert.True(t, False)
+
+		<-time.After(30 * time.Millisecond)
+
+		c, False = tc.Get("cKey")
+		assert.Nil(t, c)
+		assert.False(t, False)
 	})
 }
 
@@ -118,17 +147,17 @@ func TestCache_StorePointer(t *testing.T) {
 
 	tc.Set("testStruct", &TestStruct{1}, DefaultExpiration)
 
-	x, err := tc.Get("testStruct")
+	x, found := tc.Get("testStruct")
 	ts := x.(*TestStruct)
 	assert.Equal(t, 1, ts.Field)
-	assert.Nil(t, err)
+	assert.True(t, found)
 
 	ts.Field++
 
-	x, err = tc.Get("testStruct")
+	x, found = tc.Get("testStruct")
 	ts = x.(*TestStruct)
 	assert.Equal(t, 2, ts.Field)
-	assert.Nil(t, err)
+	assert.True(t, found)
 }
 
 func TestCache_Delete(t *testing.T) {
@@ -140,24 +169,24 @@ func TestCache_Delete(t *testing.T) {
 	tc.Set("aKey", "aValue", DefaultExpiration)
 	tc.Set("bKey", "bValue", DefaultExpiration)
 
-	a, err := tc.Get("aKey")
+	a, found := tc.Get("aKey")
 	assert.Equal(t, "aValue", a)
-	assert.Nil(t, err)
+	assert.True(t, found)
 
-	b, err := tc.Get("bKey")
+	b, found := tc.Get("bKey")
 	assert.Equal(t, "bValue", b)
-	assert.Nil(t, err)
+	assert.True(t, found)
 
 	tc.Delete("aKey")
 	tc.Delete("bKey")
 
-	a, err = tc.Get("aKey")
+	a, found = tc.Get("aKey")
 	assert.Nil(t, a)
-	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.False(t, found)
 
-	b, err = tc.Get("bKey")
+	b, found = tc.Get("bKey")
 	assert.Nil(t, b)
-	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.False(t, found)
 }
 
 func TestCache_Flush(t *testing.T) {
@@ -167,23 +196,23 @@ func TestCache_Flush(t *testing.T) {
 	tc.Set("aKey", "aValue", DefaultExpiration)
 	tc.Set("bKey", "bValue", DefaultExpiration)
 
-	a, err := tc.Get("aKey")
+	a, found := tc.Get("aKey")
 	assert.Equal(t, "aValue", a)
-	assert.Nil(t, err)
+	assert.True(t, found)
 
-	b, err := tc.Get("bKey")
+	b, found := tc.Get("bKey")
 	assert.Equal(t, "bValue", b)
-	assert.Nil(t, err)
+	assert.True(t, found)
 
 	tc.Flush()
 
-	a, err = tc.Get("aKey")
+	a, found = tc.Get("aKey")
 	assert.Nil(t, a)
-	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.False(t, found)
 
-	b, err = tc.Get("bKey")
+	b, found = tc.Get("bKey")
 	assert.Nil(t, b)
-	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.False(t, found)
 }
 
 func TestCache_ItemCount(t *testing.T) {
@@ -269,6 +298,36 @@ func TestCache_ItemCount(t *testing.T) {
 		assert.Equal(t, 2, ic)
 
 		<-time.After(30 * time.Millisecond)
+
+		ic = tc.ItemCount()
+		assert.Equal(t, 1, ic)
+	})
+
+	t.Run("withSeveralExpirationTimesAndHigherCleanUpInterval", func(t *testing.T) {
+		tc := NewCache(20*time.Millisecond, 60*time.Millisecond)
+		defer tc.Stop()
+
+		ic := tc.ItemCount()
+		assert.Equal(t, 0, ic)
+
+		tc.Set("aKey", "aValue", DefaultExpiration)
+		tc.Set("bKey", "bValue", NoExpiration)
+		tc.Set("cKey", 3, 50*time.Millisecond)
+
+		ic = tc.ItemCount()
+		assert.Equal(t, 3, ic)
+
+		<-time.After(25 * time.Millisecond)
+
+		ic = tc.ItemCount()
+		assert.Equal(t, 3, ic)
+
+		<-time.After(30 * time.Millisecond)
+
+		ic = tc.ItemCount()
+		assert.Equal(t, 3, ic)
+
+		<-time.After(100 * time.Millisecond)
 
 		ic = tc.ItemCount()
 		assert.Equal(t, 1, ic)
