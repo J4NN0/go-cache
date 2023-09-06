@@ -20,11 +20,12 @@ import (
 
 func main() {
 	// Create a cache with a default expiration time of 10 minutes, and which
-	// evicts expired items every second
+	// purges expired items every 1 second
 	c := cache.NewCache(10*time.Minute, 1*time.Second)
 	defer c.Stop()
 
-	// Set a new entry with key "foo" and value "someValue", with the default expiration time prior set (i.e. 10 minutes)
+	// Set a new entry with key "foo" and value "someValue", with the default 
+	// expiration time prior set (i.e. 10 minutes)
 	c.Set("foo", "someValue", cache.DefaultExpiration)
 
 	// Set a new entry with key "bar" and value "1", with no expiration time
@@ -33,9 +34,9 @@ func main() {
 	// Since Go is statically typed, and cache values can be anything, type
 	// assertion might be needed in some case
 	var foo string
-	x, err := c.Get("foo")
-	if err != nil {
-		fmt.Printf("Could not get 'foo': %s\n", err)
+	x, found := c.Get("foo")
+	if !found {
+		fmt.Printf("Could not find 'foo'\n")
 		return
 	}
 	foo = x.(string)
@@ -45,16 +46,11 @@ func main() {
 	ic := c.ItemCount()
 	fmt.Printf("Current cache size: %d\n", ic) // 2
 
-	// Entry can be deleted before it will expire because of its expiration time set at creation
+	// Entry can be deleted before it will expire
+	// (i.e. 10 minutes after being set in this case)
 	c.Delete("foo")
-
-	ic = c.ItemCount()
-	fmt.Printf("Current cache size: %d\n", ic) // 1
 
 	// Delete entire cache content
 	c.Flush()
-
-	ic = c.ItemCount()
-	fmt.Printf("Current cache size: %d\n", ic) // 0
 }
 ```
