@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("Could not add 'bar': %v\n", err)
 		return
-    }
+	}
 	
 	// Replace an existing entry only if it hasn't expired yet
 	err = c.Replace("foo", "someValue2", cache.DefaultExpiration)
